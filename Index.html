@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Photo Cartoon QR Generator</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- jsQR (QR Code Scanner) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
+
+  <!-- Navbar -->
+  <nav class="border-b border-slate-800 bg-slate-950 p-4">
+    <div class="max-w-4xl mx-auto flex justify-between items-center">
+      <h1 class="text-xl font-bold text-indigo-400">AI PhotoQR SaaS</h1>
+      <span class="text-xs bg-indigo-900 text-indigo-300 px-3 py-1 rounded-full border border-indigo-700">ControlNet AI v2.0</span>
+    </div>
+  </nav>
+
+  <!-- Main Section -->
+  <main class="max-w-xl mx-auto p-6 text-center">
+    <h2 class="text-3xl font-extrabold mb-2">Convert Your Photo & Payment QR into AI Art</h2>
+    <p class="text-slate-400 mb-6 text-sm">Apni photo aur payment QR code upload karein, AI unhe ek scannable cartoon art me badal dega!</p>
+
+    <!-- Upload Form Card -->
+    <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 text-left space-y-4 shadow-xl">
+      
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">1. Upload Payment QR Code</label>
+        <input type="file" id="qrUpload" accept="image/*" class="w-full text-xs bg-slate-700 p-2 rounded-lg text-slate-300">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">2. Upload Your Photo / Portrait</label>
+        <input type="file" id="photoUpload" accept="image/*" class="w-full text-xs bg-slate-700 p-2 rounded-lg text-slate-300">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">3. Choose AI Cartoon Style</label>
+        <select id="artStyle" class="w-full bg-slate-700 p-2.5 rounded-lg text-xs text-white border border-slate-600">
+          <option value="Pixar 3D animated character, vibrant lighting, smooth render">3D Pixar Cartoon</option>
+          <option value="Cyberpunk style with glowing neon lights, futuristic armor">Cyberpunk Neon Art</option>
+          <option value="Japanese anime style, Studio Ghibli inspired, aesthetic wallpaper">Studio Ghibli Anime</option>
+          <option value="Comic book pop art illustration, vibrant colors, retro superhero style">Comic Book Pop Art</option>
+        </select>
+      </div>
+
+      <button onclick="generateAIQR()" id="genBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 p-3 rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/30 transition">
+        Generate AI Cartoon QR
+      </button>
+    </div>
+
+    <!-- Hidden Canvas for scanning QR -->
+    <canvas id="hiddenCanvas" class="hidden"></canvas>
+
+    <!-- Result Display -->
+    <div id="resultBox" class="mt-8 hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 inline-block">
+      <h3 class="text-lg font-bold mb-4 text-emerald-400">AI Cartoon QR Ready!</h3>
+      <img id="aiResultImg" src="" alt="AI Generated QR" class="w-80 h-80 mx-auto rounded-xl border-4 border-slate-700 shadow-2xl">
+      <br>
+      <a id="downloadBtn" download="ai_cartoon_qr.png" target="_blank" class="inline-block mt-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-6 py-2.5 rounded-lg shadow">
+        Download AI QR Image
+      </a>
+    </div>
+  </main>
+
+  <script>
+    async function generateAIQR() {
+      const qrFile = document.getElementById('qrUpload').files[0];
+      const photoFile = document.getElementById('photoUpload').files[0];
+      const stylePrompt = document.getElementById('artStyle').value;
+      const btn = document.getElementById('genBtn');
+
+      if (!qrFile || !photoFile) {
+        alert("Kripya Payment QR Code aur Apni Photo dono upload karein!");
+        return;
+      }
+
+      btn.innerText = "Extracting QR Data...";
+      btn.disabled = true;
+
+      // 1. QR Code Data Extract
+      const qrImageObj = await loadImage(qrFile);
+      const canvas = document.getElementById('hiddenCanvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = qrImageObj.width;
+      canvas.height = qrImageObj.height;
+      ctx.drawImage(qrImageObj, 0, 0);
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imgData.data, imgData.width, imgData.height);
+
+      if (!code) {
+        alert("QR Code read nahi ho saka. Clear QR image upload karein!");
+        btn.innerText = "Generate AI Cartoon QR";
+        btn.disabled = false;
+        return;
+      }
+
+      btn.innerText = "Uploading Photo to AI Server...";
+      const userPhotoBase64 = await fileToBase64(photoFile);
+
+      btn.innerText = "Generating AI Cartoon Art (Takes ~15-20s)...";
+
+      // 2. Call Netlify Serverless Function
+      try {
+        const response = await fetch('/.netlify/functions/generate-qr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            prompt: stylePrompt, 
+            qrData: code.data,
+            userPhotoBase64: userPhotoBase64
+          })
+        });
+        
+        const resData = await response.json();
+        
+        if(resData.error) {
+          alert("Error: " + resData.error);
+          btn.innerText = "Generate AI Cartoon QR";
+          btn.disabled = false;
+          return;
+        }
+
+        // Poll Replicate for Result
+        if(resData.poll_url) {
+          checkAIStatus(resData.poll_url);
+        }
+      } catch (err) {
+        alert("Connection Error: " + err.message);
+        btn.innerText = "Generate AI Cartoon QR";
+        btn.disabled = false;
+      }
+    }
+
+    // AI Generation Check Loop
+    async function checkAIStatus(pollUrl) {
+      const btn = document.getElementById('genBtn');
+      
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(pollUrl);
+          const data = await res.json();
+          
+          if (data.status === "succeeded") {
+            clearInterval(interval);
+            const finalImageUrl = data.output[0];
+            
+            document.getElementById('aiResultImg').src = finalImageUrl;
+            document.getElementById('downloadBtn').href = finalImageUrl;
+            document.getElementById('resultBox').classList.remove('hidden');
+            
+            btn.innerText = "Generate AI Cartoon QR";
+            btn.disabled = false;
+          } else if (data.status === "failed") {
+            clearInterval(interval);
+            alert("AI Image generation fail ho gaya. Dusri photo se try karein.");
+            btn.innerText = "Generate AI Cartoon QR";
+            btn.disabled = false;
+          }
+        } catch(e) {
+          console.log("Polling error:", e);
+        }
+      }, 3000);
+    }
+
+    // Utility Helpers
+    function loadImage(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+      });
+    }
+  </script>
+</body>
+</html>
