@@ -12,11 +12,11 @@ exports.handler = async function(event, context) {
     if (!REPLICATE_API_TOKEN) {
       return { 
         statusCode: 500, 
-        body: JSON.stringify({ error: 'REPLICATE_API_TOKEN is missing in Netlify Environment Variables.' }) 
+        body: JSON.stringify({ error: 'Replicate API Token Netlify me set nahi hai!' }) 
       };
     }
 
-    // Agar check_url aaya hai toh status poll karein
+    // Polling Status Check
     if (body.action === 'check') {
       const pollResponse = await fetch(body.poll_url, {
         headers: { "Authorization": `Token ${REPLICATE_API_TOKEN}` }
@@ -25,7 +25,7 @@ exports.handler = async function(event, context) {
       return { statusCode: 200, body: JSON.stringify(pollData) };
     }
 
-    // First time generation request
+    // AI Generation Call
     const response = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
       headers: {
@@ -37,8 +37,8 @@ exports.handler = async function(event, context) {
         input: {
           qr_code_content: body.qrData,
           image: body.userPhotoBase64,
-          prompt: `${body.prompt}, 3D anime cartoon style, high quality portrait, scannable pattern`,
-          negative_prompt: "ugly, blurry, distorted, low quality, bad architecture, messy",
+          prompt: `${body.prompt}, master portrait, high quality, scannable pattern`,
+          negative_prompt: "ugly, blurry, low resolution, noise",
           controlnet_conditioning_scale: 1.15,
           guidance_scale: 7.5
         }
@@ -47,8 +47,11 @@ exports.handler = async function(event, context) {
 
     const data = await response.json();
 
-    if (data.error) {
-      return { statusCode: 400, body: JSON.stringify({ error: data.error }) };
+    if (data.error || response.status >= 400) {
+      return { 
+        statusCode: 400, 
+        body: JSON.stringify({ error: data.error || data.detail || 'Replicate API error' }) 
+      };
     }
 
     return {
